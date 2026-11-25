@@ -138,4 +138,12 @@ bool audiobook_current_book(char *book_out, size_t book_size, char *file_out, si
 // chapter's title, else the part's, else "".
 void audiobook_place_label(double seconds, char *out, size_t size);
 
+typedef struct {
+	double start;
+	char title[192];
+} audiobook_chapter_entry_t;
+
+int audiobook_get_file_chapters(const char *filepath, audiobook_chapter_entry_t **out_entries);
+void audiobook_free_file_chapters(audiobook_chapter_entry_t *entries);
+
 #endif /* AUDIOBOOK_H */

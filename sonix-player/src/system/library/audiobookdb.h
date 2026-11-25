@@ -61,6 +61,7 @@ typedef enum {
 	AUDIOBOOK_LIST_CONTINUE, // the ones started and not back at their beginning
 	AUDIOBOOK_LIST_AUTHOR,	 // the books of one author; "" is the books with none
 	AUDIOBOOK_LIST_SERIES,	 // the books of one series
+	AUDIOBOOK_LIST_UNREAD,	 // the ones not yet started or finished
 } audiobook_list_t;
 
 // The orders a list can come in. Each can also be read backwards.

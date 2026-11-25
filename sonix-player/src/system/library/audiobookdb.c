@@ -325,6 +325,13 @@ audiobookdb_index_t *audiobookdb_index_open(audiobook_list_t kind, const char *v
 		order_clause(orderby, sizeof(orderby), order, desc, "t.added");
 		snprintf(sql, sizeof(sql), "SELECT t.rowid FROM AUDIOBOOK_TABLE t WHERE t.series = ?1 COLLATE NOCASE ORDER BY %s", orderby);
 		break;
+	case AUDIOBOOK_LIST_UNREAD:
+		order_clause(orderby, sizeof(orderby), order, desc, "t.added");
+		snprintf(sql, sizeof(sql),
+				 "SELECT t.rowid FROM AUDIOBOOK_TABLE t WHERE t.path NOT IN (SELECT path FROM AUDIOBOOK_FINISHED)"
+				 " AND (t.last_played IS NULL OR t.last_played = 0) ORDER BY %s",
+				 orderby);
+		break;
 	default:
 		order_clause(orderby, sizeof(orderby), order, desc, "t.added");
 		snprintf(sql, sizeof(sql), "SELECT t.rowid FROM AUDIOBOOK_TABLE t ORDER BY %s", orderby);

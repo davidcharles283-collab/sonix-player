@@ -11,6 +11,8 @@
 // scan and the transport-button setting, the page that setting opens, and the
 // scan progress page (the music one's layout with its own icon and words).
 extern lv_obj_t *audiobooks_screen;
+extern lv_obj_t *audiobooklibrary_screen;
+extern lv_obj_t *book_detail_screen;
 extern lv_obj_t *audiobooksettings_screen;
 extern lv_obj_t *audiobookcontrols_screen;
 extern lv_obj_t *audiobookscan_screen;
@@ -21,5 +23,8 @@ void audiobooks_init(gui_config_t *cfg);
 // and writes that as where the book stands. The player is left as it is: the
 // caller decides whether it comes up.
 void audiobooks_play_at(const char *book, const char *file, double seconds);
+
+// Opens the detail page for `book_path`
+void audiobook_open_detail(const char *book_path);
 
 #endif /* AUDIOBOOKS_H */

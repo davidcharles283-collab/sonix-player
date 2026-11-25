@@ -606,6 +606,8 @@ void gui_init(gui_config_t *cfg) {
 	medialist_tracks_screen = lv_obj_create(NULL);
 	medialist_albums_screen = lv_obj_create(NULL);
 	audiobooks_screen = lv_obj_create(NULL);
+	audiobooklibrary_screen = lv_obj_create(NULL);
+	book_detail_screen = lv_obj_create(NULL);
 	audiobooksettings_screen = lv_obj_create(NULL);
 	audiobookcontrols_screen = lv_obj_create(NULL);
 	audiobookscan_screen = lv_obj_create(NULL);
@@ -739,7 +741,7 @@ void gui_init(gui_config_t *cfg) {
 		// player, so dragging it sideways to go back into the player would be
 		// one gesture doing two contradictory things. The back swipe is the
 		// only way out of it.
-		medialist_tracks_screen, medialist_albums_screen, audiobooks_screen, wireless_screen,
+		medialist_tracks_screen, medialist_albums_screen, audiobooks_screen, audiobooklibrary_screen, book_detail_screen, wireless_screen,
 		streaming_screen,		 radiopage_screen,	radiolist_screen,	radiosearch_screen,
 		morepage_screen,
 	};
@@ -755,7 +757,7 @@ void gui_init(gui_config_t *cfg) {
 		main_menu_screen, music_screen,			browser_screen,	  settings_screen,
 		devoptions_screen, processespage_screen, musicsettings_screen, powersettings_screen, appearance_screen,
 		language_screen,
-		medialist_screen,  medialist_tracks_screen, medialist_albums_screen, audiobooks_screen, audiobooksettings_screen,
+		medialist_screen,  medialist_tracks_screen, medialist_albums_screen, audiobooks_screen, audiobooklibrary_screen, book_detail_screen, audiobooksettings_screen,
 		queue_screen,	  chapters_screen,		 details_screen,   audiobookcontrols_screen,
 		lyricsearch_screen,
 		wireless_screen,

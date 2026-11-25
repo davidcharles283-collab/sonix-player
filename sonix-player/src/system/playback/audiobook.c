@@ -543,3 +543,72 @@ void audiobook_place_label(double seconds, char *out, size_t size) {
 	}
 	pthread_mutex_unlock(&lock);
 }
+
+int audiobook_get_file_chapters(const char *filepath, audiobook_chapter_entry_t **out_entries) {
+	if (!filepath || !filepath[0] || !out_entries) {
+		return 0;
+	}
+	*out_entries = NULL;
+
+	mp4_file_t *m = mp4_open(filepath);
+	if (!m) {
+		int count = id3chap_read(filepath, NULL, 0);
+		if (count <= 0) {
+			count = vorbischap_read(filepath, NULL, 0);
+			if (count <= 0) {
+				return 0;
+			}
+			vorbischap_t *found = calloc((size_t)count, sizeof(*found));
+			if (!found) {
+				return 0;
+			}
+			count = vorbischap_read(filepath, found, count);
+			audiobook_chapter_entry_t *entries = count > 0 ? calloc((size_t)count, sizeof(*entries)) : NULL;
+			if (entries) {
+				for (int i = 0; i < count; i++) {
+					entries[i].start = found[i].start;
+					name_chapter(entries[i].title, sizeof(entries[i].title), found[i].title, i);
+				}
+				*out_entries = entries;
+			}
+			free(found);
+			return entries ? count : 0;
+		}
+
+		id3chap_t *found = calloc((size_t)count, sizeof(*found));
+		if (!found) {
+			return 0;
+		}
+		count = id3chap_read(filepath, found, count);
+		audiobook_chapter_entry_t *entries = count > 0 ? calloc((size_t)count, sizeof(*entries)) : NULL;
+		if (entries) {
+			for (int i = 0; i < count; i++) {
+				entries[i].start = found[i].start;
+				name_chapter(entries[i].title, sizeof(entries[i].title), found[i].title, i);
+			}
+			*out_entries = entries;
+		}
+		free(found);
+		return entries ? count : 0;
+	}
+
+	int count = mp4_chapter_count(m);
+	if (count > 0) {
+		audiobook_chapter_entry_t *entries = calloc((size_t)count, sizeof(*entries));
+		if (entries) {
+			for (int i = 0; i < count; i++) {
+				const mp4_chapter_t *c = mp4_chapter(m, i);
+				entries[i].start = c->start;
+				name_chapter(entries[i].title, sizeof(entries[i].title), c->title, i);
+			}
+			*out_entries = entries;
+		}
+	}
+	mp4_close(m);
+	return *out_entries ? count : 0;
+}
+
+void audiobook_free_file_chapters(audiobook_chapter_entry_t *entries) {
+	free(entries);
+}
+
