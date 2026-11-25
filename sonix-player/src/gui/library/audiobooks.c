@@ -1932,7 +1932,7 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_obj_add_event_cb(banner, open_library_banner_cb, LV_EVENT_CLICKED, NULL);
 
 	lv_obj_t *b_icon = lv_image_create(banner);
-	lv_image_set_src(b_icon, &icon_menu_books);
+	lv_image_set_src(b_icon, &icon_library_books);
 	lv_obj_add_style(b_icon, &theme_style_icon, 0);
 	lv_obj_set_style_image_recolor_opa(b_icon, LV_OPA_COVER, 0);
 	lv_obj_set_style_image_recolor(b_icon, lv_color_white(), 0);
