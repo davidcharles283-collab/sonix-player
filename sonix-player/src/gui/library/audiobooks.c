@@ -786,6 +786,9 @@ static void books_sort_cb(lv_event_t *e) {
 
 static void books_loaded_cb(lv_event_t *e) {
 	(void)e;
+	for (int i = 0; i < ROW_POOL; i++) {
+		rows[i].index = -2;
+	}
 	refresh_stale();
 	window_update();
 }
@@ -815,10 +818,10 @@ static void build_books_page(gui_config_t *cfg) {
 	books_title = settingsrow_title(audiobooklibrary_screen, cfg, "audiobook_library");
 	settingsrow_title_corner_slots(books_title, cfg, 3);
 
-	lv_obj_t *sort_btn = corner_button(audiobooklibrary_screen, cfg, 0, &icon_sort_az, books_sort_cb);
-	books_sort_icon = lv_obj_get_child(sort_btn, 0);
+	corner_button(audiobooklibrary_screen, cfg, 0, &icon_music_settings, settings_click_cb);
 	corner_button(audiobooklibrary_screen, cfg, 1, &icon_search, search_click_cb);
-	corner_button(audiobooklibrary_screen, cfg, 2, &icon_music_settings, settings_click_cb);
+	lv_obj_t *sort_btn = corner_button(audiobooklibrary_screen, cfg, 2, &icon_sort_az, books_sort_cb);
+	books_sort_icon = lv_obj_get_child(sort_btn, 0);
 
 	int content_top = settingsrow_content_top(cfg);
 
@@ -903,7 +906,7 @@ static void build_books_page(gui_config_t *cfg) {
 		lv_image_set_inner_align(row->icon, LV_IMAGE_ALIGN_CENTER);
 
 		lv_obj_t *col = lv_obj_create(row->button);
-		lv_obj_set_size(col, lv_pct(100), LV_SIZE_CONTENT);
+		lv_obj_set_size(col, 0, LV_SIZE_CONTENT);
 		lv_obj_set_flex_grow(col, 1);
 		lv_obj_set_style_bg_opa(col, 0, 0);
 		lv_obj_set_style_border_width(col, 0, 0);
@@ -959,6 +962,26 @@ static void build_books_page(gui_config_t *cfg) {
 // ---------------------------------------------------------------------------
 // Screen 3 & 4: "Book Detail" (book_detail_screen)
 // ---------------------------------------------------------------------------
+
+typedef struct {
+	char title[192];
+	char path[512];
+	double start;
+	double duration;
+} detail_chap_t;
+
+static detail_chap_t *detail_chapters = NULL;
+static int detail_chapter_count = 0;
+static int detail_active_idx = -1;
+
+typedef struct {
+	char file[512];
+	char label[128];
+	double seconds;
+} detail_mark_t;
+
+static detail_mark_t *detail_bookmarks = NULL;
+static int detail_bookmark_count = 0;
 
 static char detail_book_path[512];
 static lv_obj_t *detail_title;
@@ -1024,31 +1047,25 @@ static void detail_resume_cb(lv_event_t *e) {
 	play_book(detail_book_path);
 }
 
-static void chapter_play_cb(lv_event_t *e) {
+static void chapter_click_cb(lv_event_t *e) {
 	if (player_sheet_drag_active() || switcher_back_drag_active()) return;
-	double start = (double)(intptr_t)lv_event_get_user_data(e);
-	audiobooks_play_at(detail_book_path, detail_book_path, start);
+	int i = (int)(intptr_t)lv_event_get_user_data(e);
+	if (!detail_chapters || i < 0 || i >= detail_chapter_count) return;
+
+	if (audiobookdb_is_folder_book(detail_book_path)) {
+		audiobooks_play_at(detail_book_path, detail_chapters[i].path, 0.0);
+	} else {
+		audiobooks_play_at(detail_book_path, detail_book_path, detail_chapters[i].start);
+	}
 	player_sheet_open(true);
 }
 
-static void part_play_cb(lv_event_t *e) {
+static void bookmark_click_cb(lv_event_t *e) {
 	if (player_sheet_drag_active() || switcher_back_drag_active()) return;
-	const char *part_path = lv_event_get_user_data(e);
-	if (!part_path) return;
-	audiobooks_play_at(detail_book_path, part_path, 0.0);
-	player_sheet_open(true);
-}
+	int i = (int)(intptr_t)lv_event_get_user_data(e);
+	if (!detail_bookmarks || i < 0 || i >= detail_bookmark_count) return;
 
-typedef struct {
-	char file[512];
-	double seconds;
-} mark_item_t;
-
-static void bookmark_play_cb(lv_event_t *e) {
-	if (player_sheet_drag_active() || switcher_back_drag_active()) return;
-	mark_item_t *m = lv_event_get_user_data(e);
-	if (!m) return;
-	audiobooks_play_at(detail_book_path, m->file, m->seconds);
+	audiobooks_play_at(detail_book_path, detail_bookmarks[i].file, detail_bookmarks[i].seconds);
 	player_sheet_open(true);
 }
 
@@ -1065,146 +1082,112 @@ static void format_clock(double seconds, char *out, size_t size) {
 	}
 }
 
-typedef struct {
-	int count;
-	lv_obj_t *parent;
-} detail_part_build_t;
+static bool collect_detail_parts_cb(const char *path, const char *title, void *user) {
+	(void)user;
+	int grown = detail_chapter_count + 1;
+	detail_chap_t *bigger = realloc(detail_chapters, (size_t)grown * sizeof(*bigger));
+	if (!bigger) return false;
+	detail_chapters = bigger;
 
-static bool detail_build_part_row(const char *part_path, const char *title, void *user) {
-	detail_part_build_t *b = user;
-	int i = b->count++;
-
-	char resume_file[512] = "";
-	double resume_pos = 0;
-	bool has_pos = audiobookdb_get_position(detail_book_path, resume_file, sizeof(resume_file), &resume_pos);
-	bool finished = audiobookdb_is_finished(detail_book_path);
-
-	bool is_playing = !finished && has_pos && strcmp(part_path, resume_file) == 0;
-	bool is_completed = finished;
-
-	lv_obj_t *card = lv_btn_create(b->parent);
-	lv_obj_set_size(card, lv_pct(100), is_playing ? 70 : 58);
-	lv_obj_set_style_radius(card, 12, 0);
-	lv_obj_set_style_pad_hor(card, 16, 0);
-	lv_obj_set_style_pad_ver(card, 0, 0);
-	lv_obj_set_style_shadow_width(card, 0, 0);
-	lv_obj_set_style_border_width(card, is_playing ? 2 : 0, 0);
-	lv_obj_set_style_border_color(card, AUDIOBOOK_ACCENT, 0);
-	lv_obj_set_style_bg_color(card, is_playing ? AUDIOBOOK_ACTIVE_BG : AUDIOBOOK_CARD_BG, 0);
-	lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
-	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-	lv_obj_set_style_pad_gap(card, 12, 0);
-
-	char *copied_path = strdup(part_path);
-	lv_obj_add_event_cb(card, part_play_cb, LV_EVENT_CLICKED, copied_path);
-	// Clean up string when button deleted
-	lv_obj_add_event_cb(card, (lv_event_cb_t)free, LV_EVENT_DELETE, copied_path);
-
-	if (is_playing) {
-		lv_obj_t *play_circle = lv_obj_create(card);
-		lv_obj_set_size(play_circle, 32, 32);
-		lv_obj_set_style_radius(play_circle, LV_RADIUS_CIRCLE, 0);
-		lv_obj_set_style_bg_color(play_circle, AUDIOBOOK_ACCENT, 0);
-		lv_obj_set_style_border_width(play_circle, 0, 0);
-		lv_obj_set_style_pad_all(play_circle, 0, 0);
-		lv_obj_set_scrollable(play_circle, false);
-
-		lv_obj_t *play_icon = lv_label_create(play_circle);
-		lv_label_set_text(play_icon, LV_SYMBOL_PLAY);
-		lv_obj_set_style_text_color(play_icon, lv_color_white(), 0);
-		lv_obj_set_style_text_font(play_icon, &font_ui_16, 0);
-		lv_obj_center(play_icon);
-
-		lv_obj_t *col = lv_obj_create(card);
-		lv_obj_set_size(col, lv_pct(100), LV_SIZE_CONTENT);
-		lv_obj_set_flex_grow(col, 1);
-		lv_obj_set_style_bg_opa(col, 0, 0);
-		lv_obj_set_style_border_width(col, 0, 0);
-		lv_obj_set_style_pad_all(col, 0, 0);
-		lv_obj_set_style_pad_gap(col, 2, 0);
-		lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-
-		lv_obj_t *lbl = lv_label_create(col);
-		lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-		lv_obj_set_width(lbl, lv_pct(100));
-		lv_label_set_text_fmt(lbl, "%s %d %s", tr("audiobook_chapter_prefix"), i + 1, tr("audiobook_now_playing_tag"));
-		lv_obj_set_style_text_color(lbl, AUDIOBOOK_ACCENT, 0);
-		lv_obj_set_style_text_font(lbl, &font_ui_20, 0);
-
-		char time_str[64];
-		format_clock(resume_pos, time_str, sizeof(time_str));
-		lv_obj_t *time_lbl = lv_label_create(col);
-		lv_label_set_text(time_lbl, time_str);
-		lv_obj_set_style_text_color(time_lbl, AUDIOBOOK_TEXT_DIM, 0);
-		lv_obj_set_style_text_font(time_lbl, &font_ui_16, 0);
+	detail_chap_t *c = &detail_chapters[detail_chapter_count];
+	snprintf(c->path, sizeof(c->path), "%s", path ? path : "");
+	if (title && title[0]) {
+		snprintf(c->title, sizeof(c->title), "%s", title);
 	} else {
-		lv_obj_t *lbl = lv_label_create(card);
-		lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-		lv_obj_set_flex_grow(lbl, 1);
-		if (title && title[0]) {
-			lv_label_set_text(lbl, title);
-		} else {
-			lv_label_set_text_fmt(lbl, "%s %d", tr("audiobook_chapter_prefix"), i + 1);
-		}
-		lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
-		lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
-
-		if (is_completed) {
-			lv_obj_t *chk = lv_label_create(card);
-			lv_label_set_text(chk, LV_SYMBOL_OK);
-			lv_obj_set_style_text_color(chk, AUDIOBOOK_TEXT_DIM, 0);
-			lv_obj_set_style_text_font(chk, &font_ui_20, 0);
-		}
+		snprintf(c->title, sizeof(c->title), "%s %d", tr("audiobook_chapter_prefix"), detail_chapter_count + 1);
 	}
-
+	c->start = 0;
+	c->duration = 0;
+	detail_chapter_count++;
 	return true;
 }
 
-typedef struct {
-	int count;
-	lv_obj_t *parent;
-} bookmark_build_t;
-
-static bool detail_build_bookmark_row(long long id, const char *file, double seconds, const char *label, void *user) {
+static bool collect_detail_bookmarks_cb(long long id, const char *file, double seconds, const char *label, void *user) {
 	(void)id;
-	bookmark_build_t *b = user;
-	b->count++;
+	(void)user;
+	int grown = detail_bookmark_count + 1;
+	detail_mark_t *bigger = realloc(detail_bookmarks, (size_t)grown * sizeof(*bigger));
+	if (!bigger) return false;
+	detail_bookmarks = bigger;
 
-	lv_obj_t *card = lv_btn_create(b->parent);
-	lv_obj_set_size(card, lv_pct(100), 58);
-	lv_obj_set_style_radius(card, 12, 0);
-	lv_obj_set_style_pad_hor(card, 16, 0);
-	lv_obj_set_style_shadow_width(card, 0, 0);
-	lv_obj_set_style_border_width(card, 0, 0);
-	lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_BG, 0);
-	lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
-	lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-	lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-	mark_item_t *m = malloc(sizeof(*m));
-	if (m) {
-		snprintf(m->file, sizeof(m->file), "%s", file ? file : "");
-		m->seconds = seconds;
-		lv_obj_add_event_cb(card, bookmark_play_cb, LV_EVENT_CLICKED, m);
-		lv_obj_add_event_cb(card, (lv_event_cb_t)free, LV_EVENT_DELETE, m);
-	}
-
-	char clock[32];
-	format_clock(seconds, clock, sizeof(clock));
-
-	lv_obj_t *lbl = lv_label_create(card);
-	lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-	lv_obj_set_flex_grow(lbl, 1);
-	if (label && label[0]) {
-		lv_label_set_text_fmt(lbl, "%s · %s", label, clock);
-	} else {
-		lv_label_set_text_fmt(lbl, "%s · %s", tr("audiobook_chapter_prefix"), clock);
-	}
-	lv_obj_add_style(lbl, &theme_style_text, 0);
-	lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
-
+	detail_mark_t *m = &detail_bookmarks[detail_bookmark_count];
+	snprintf(m->file, sizeof(m->file), "%s", file ? file : "");
+	snprintf(m->label, sizeof(m->label), "%s", label ? label : "");
+	m->seconds = seconds;
+	detail_bookmark_count++;
 	return true;
+}
+
+static void load_detail_data(const char *book_path) {
+	free(detail_chapters);
+	detail_chapters = NULL;
+	detail_chapter_count = 0;
+	detail_active_idx = -1;
+
+	free(detail_bookmarks);
+	detail_bookmarks = NULL;
+	detail_bookmark_count = 0;
+
+	if (!book_path || !book_path[0]) return;
+
+	char resume_file[512] = "";
+	double resume_pos = 0;
+	bool has_pos = audiobookdb_get_position(book_path, resume_file, sizeof(resume_file), &resume_pos);
+	bool finished = audiobookdb_is_finished(book_path);
+
+	bool is_folder = audiobookdb_is_folder_book(book_path);
+	if (is_folder) {
+		audiobookdb_parts_for_each(book_path, collect_detail_parts_cb, NULL);
+		if (!finished && has_pos && resume_file[0]) {
+			for (int i = 0; i < detail_chapter_count; i++) {
+				if (strcmp(detail_chapters[i].path, resume_file) == 0) {
+					detail_active_idx = i;
+					break;
+				}
+			}
+		}
+	} else {
+		audiobook_chapter_entry_t *entries = NULL;
+		int count = audiobook_get_file_chapters(book_path, &entries);
+		if (count > 0 && entries) {
+			detail_chapters = calloc((size_t)count, sizeof(*detail_chapters));
+			if (detail_chapters) {
+				detail_chapter_count = count;
+				for (int i = 0; i < count; i++) {
+					snprintf(detail_chapters[i].title, sizeof(detail_chapters[i].title), "%s", entries[i].title);
+					snprintf(detail_chapters[i].path, sizeof(detail_chapters[i].path), "%s", book_path);
+					detail_chapters[i].start = entries[i].start;
+					if (i + 1 < count) {
+						detail_chapters[i].duration = entries[i + 1].start - entries[i].start;
+					}
+				}
+			}
+			audiobook_free_file_chapters(entries);
+
+			if (!finished && has_pos && resume_pos > 1.0) {
+				for (int i = 0; i < detail_chapter_count; i++) {
+					double next_start = (i + 1 < detail_chapter_count) ? detail_chapters[i + 1].start : 1e9;
+					if (resume_pos >= detail_chapters[i].start && resume_pos < next_start) {
+						detail_active_idx = i;
+						break;
+					}
+				}
+			}
+		} else {
+			detail_chapters = calloc(1, sizeof(*detail_chapters));
+			if (detail_chapters) {
+				detail_chapter_count = 1;
+				snprintf(detail_chapters[0].title, sizeof(detail_chapters[0].title), "%s 1", tr("audiobook_chapter_prefix"));
+				snprintf(detail_chapters[0].path, sizeof(detail_chapters[0].path), "%s", book_path);
+				detail_chapters[0].start = 0;
+			}
+			if (!finished && has_pos && resume_pos > 1.0) {
+				detail_active_idx = 0;
+			}
+		}
+	}
+
+	audiobookdb_bookmarks_for_each(book_path, collect_detail_bookmarks_cb, NULL);
 }
 
 static void rebuild_detail_tab_content(void) {
@@ -1212,133 +1195,123 @@ static void rebuild_detail_tab_content(void) {
 
 	if (detail_tab_index == 0) {
 		// Chapters Tab
-		if (audiobookdb_is_folder_book(detail_book_path)) {
-			detail_part_build_t b = {0, detail_tab_body};
-			audiobookdb_parts_for_each(detail_book_path, detail_build_part_row, &b);
-		} else {
-			audiobook_chapter_entry_t *entries = NULL;
-			int count = audiobook_get_file_chapters(detail_book_path, &entries);
+		bool finished = audiobookdb_is_finished(detail_book_path);
+		char resume_file[512] = "";
+		double resume_pos = 0;
+		audiobookdb_get_position(detail_book_path, resume_file, sizeof(resume_file), &resume_pos);
 
-			char resume_file[512] = "";
-			double resume_pos = 0;
-			bool has_pos = audiobookdb_get_position(detail_book_path, resume_file, sizeof(resume_file), &resume_pos);
-			bool finished = audiobookdb_is_finished(detail_book_path);
+		for (int i = 0; i < detail_chapter_count; i++) {
+			bool is_playing = (i == detail_active_idx);
+			bool is_completed = finished || (detail_active_idx >= 0 && i < detail_active_idx);
 
-			int active_idx = -1;
-			if (!finished && has_pos && resume_pos > 1.0) {
-				for (int i = 0; i < count; i++) {
-					double next_start = (i + 1 < count) ? entries[i + 1].start : 1e9;
-					if (resume_pos >= entries[i].start && resume_pos < next_start) {
-						active_idx = i;
-						break;
-					}
+			lv_obj_t *card = lv_btn_create(detail_tab_body);
+			lv_obj_set_size(card, lv_pct(100), is_playing ? 70 : 58);
+			lv_obj_set_style_radius(card, 12, 0);
+			lv_obj_set_style_pad_hor(card, 16, 0);
+			lv_obj_set_style_pad_ver(card, 0, 0);
+			lv_obj_set_style_shadow_width(card, 0, 0);
+			lv_obj_set_style_border_width(card, is_playing ? 2 : 0, 0);
+			lv_obj_set_style_border_color(card, AUDIOBOOK_ACCENT, 0);
+			lv_obj_set_style_bg_color(card, is_playing ? AUDIOBOOK_ACTIVE_BG : AUDIOBOOK_CARD_BG, 0);
+			lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
+			lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+			lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+			lv_obj_set_style_pad_gap(card, 12, 0);
+			lv_obj_add_event_cb(card, chapter_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+			if (is_playing) {
+				lv_obj_t *play_circle = lv_obj_create(card);
+				lv_obj_set_size(play_circle, 32, 32);
+				lv_obj_set_style_radius(play_circle, LV_RADIUS_CIRCLE, 0);
+				lv_obj_set_style_bg_color(play_circle, AUDIOBOOK_ACCENT, 0);
+				lv_obj_set_style_border_width(play_circle, 0, 0);
+				lv_obj_set_style_pad_all(play_circle, 0, 0);
+				lv_obj_set_scrollable(play_circle, false);
+
+				lv_obj_t *play_icon = lv_image_create(play_circle);
+				lv_image_set_src(play_icon, &icon_play_small);
+				lv_obj_add_style(play_icon, &theme_style_icon, 0);
+				lv_obj_set_style_image_recolor_opa(play_icon, LV_OPA_COVER, 0);
+				lv_obj_set_style_image_recolor(play_icon, lv_color_white(), 0);
+				lv_obj_center(play_icon);
+
+				lv_obj_t *col = lv_obj_create(card);
+				lv_obj_set_size(col, 0, LV_SIZE_CONTENT);
+				lv_obj_set_flex_grow(col, 1);
+				lv_obj_set_style_bg_opa(col, 0, 0);
+				lv_obj_set_style_border_width(col, 0, 0);
+				lv_obj_set_style_pad_all(col, 0, 0);
+				lv_obj_set_style_pad_gap(col, 2, 0);
+				lv_obj_set_scrollable(col, false);
+				lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+
+				lv_obj_t *lbl = lv_label_create(col);
+				lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+				lv_obj_set_width(lbl, lv_pct(100));
+				lv_label_set_text_fmt(lbl, "%s %s", detail_chapters[i].title, tr("audiobook_now_playing_tag"));
+				lv_obj_set_style_text_color(lbl, AUDIOBOOK_ACCENT, 0);
+				lv_obj_set_style_text_font(lbl, &font_ui_20, 0);
+
+				char time_str[64];
+				char dur_str[32];
+				double chap_pos = (resume_pos >= detail_chapters[i].start) ? (resume_pos - detail_chapters[i].start) : resume_pos;
+				format_clock(chap_pos, time_str, sizeof(time_str));
+				if (detail_chapters[i].duration > 0) {
+					format_clock(detail_chapters[i].duration, dur_str, sizeof(dur_str));
+					snprintf(time_str + strlen(time_str), sizeof(time_str) - strlen(time_str), " / %s", dur_str);
 				}
-				if (active_idx < 0 && count > 0) active_idx = 0;
-			}
-
-			if (count > 0) {
-				for (int i = 0; i < count; i++) {
-					bool is_playing = (i == active_idx);
-					bool is_completed = finished || (active_idx >= 0 && i < active_idx);
-
-					lv_obj_t *card = lv_btn_create(detail_tab_body);
-					lv_obj_set_size(card, lv_pct(100), is_playing ? 70 : 58);
-					lv_obj_set_style_radius(card, 12, 0);
-					lv_obj_set_style_pad_hor(card, 16, 0);
-					lv_obj_set_style_pad_ver(card, 0, 0);
-					lv_obj_set_style_shadow_width(card, 0, 0);
-					lv_obj_set_style_border_width(card, is_playing ? 2 : 0, 0);
-					lv_obj_set_style_border_color(card, AUDIOBOOK_ACCENT, 0);
-					lv_obj_set_style_bg_color(card, is_playing ? AUDIOBOOK_ACTIVE_BG : AUDIOBOOK_CARD_BG, 0);
-					lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
-					lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-					lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-					lv_obj_set_style_pad_gap(card, 12, 0);
-					lv_obj_add_event_cb(card, chapter_play_cb, LV_EVENT_CLICKED, (void *)(intptr_t)(long)entries[i].start);
-
-					if (is_playing) {
-						lv_obj_t *play_circle = lv_obj_create(card);
-						lv_obj_set_size(play_circle, 32, 32);
-						lv_obj_set_style_radius(play_circle, LV_RADIUS_CIRCLE, 0);
-						lv_obj_set_style_bg_color(play_circle, AUDIOBOOK_ACCENT, 0);
-						lv_obj_set_style_border_width(play_circle, 0, 0);
-						lv_obj_set_style_pad_all(play_circle, 0, 0);
-						lv_obj_set_scrollable(play_circle, false);
-
-						lv_obj_t *play_icon = lv_label_create(play_circle);
-						lv_label_set_text(play_icon, LV_SYMBOL_PLAY);
-						lv_obj_set_style_text_color(play_icon, lv_color_white(), 0);
-						lv_obj_set_style_text_font(play_icon, &font_ui_16, 0);
-						lv_obj_center(play_icon);
-
-						lv_obj_t *col = lv_obj_create(card);
-						lv_obj_set_size(col, lv_pct(100), LV_SIZE_CONTENT);
-						lv_obj_set_flex_grow(col, 1);
-						lv_obj_set_style_bg_opa(col, 0, 0);
-						lv_obj_set_style_border_width(col, 0, 0);
-						lv_obj_set_style_pad_all(col, 0, 0);
-						lv_obj_set_style_pad_gap(col, 2, 0);
-						lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-
-						lv_obj_t *lbl = lv_label_create(col);
-						lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-						lv_obj_set_width(lbl, lv_pct(100));
-						lv_label_set_text_fmt(lbl, "%s %d %s", tr("audiobook_chapter_prefix"), i + 1, tr("audiobook_now_playing_tag"));
-						lv_obj_set_style_text_color(lbl, AUDIOBOOK_ACCENT, 0);
-						lv_obj_set_style_text_font(lbl, &font_ui_20, 0);
-
-						char time_str[64];
-						format_clock(resume_pos, time_str, sizeof(time_str));
-						lv_obj_t *time_lbl = lv_label_create(col);
-						lv_label_set_text(time_lbl, time_str);
-						lv_obj_set_style_text_color(time_lbl, AUDIOBOOK_TEXT_DIM, 0);
-						lv_obj_set_style_text_font(time_lbl, &font_ui_16, 0);
-					} else {
-						lv_obj_t *lbl = lv_label_create(card);
-						lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
-						lv_obj_set_flex_grow(lbl, 1);
-						if (entries[i].title[0]) {
-							lv_label_set_text(lbl, entries[i].title);
-						} else {
-							lv_label_set_text_fmt(lbl, "%s %d", tr("audiobook_chapter_prefix"), i + 1);
-						}
-						lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
-						lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
-
-						if (is_completed) {
-							lv_obj_t *chk = lv_label_create(card);
-							lv_label_set_text(chk, LV_SYMBOL_OK);
-							lv_obj_set_style_text_color(chk, AUDIOBOOK_TEXT_DIM, 0);
-							lv_obj_set_style_text_font(chk, &font_ui_20, 0);
-						}
-					}
-				}
-				audiobook_free_file_chapters(entries);
+				lv_obj_t *time_lbl = lv_label_create(col);
+				lv_label_set_text(time_lbl, time_str);
+				lv_obj_set_style_text_color(time_lbl, AUDIOBOOK_TEXT_DIM, 0);
+				lv_obj_set_style_text_font(time_lbl, &font_ui_16, 0);
 			} else {
-				// Single file with no chapters -> 1 row
-				lv_obj_t *card = lv_btn_create(detail_tab_body);
-				lv_obj_set_size(card, lv_pct(100), 58);
-				lv_obj_set_style_radius(card, 12, 0);
-				lv_obj_set_style_pad_hor(card, 16, 0);
-				lv_obj_set_style_shadow_width(card, 0, 0);
-				lv_obj_set_style_border_width(card, 0, 0);
-				lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_BG, 0);
-				lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
-				lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
-				lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-				lv_obj_add_event_cb(card, chapter_play_cb, LV_EVENT_CLICKED, (void *)0);
-
 				lv_obj_t *lbl = lv_label_create(card);
-				lv_label_set_text_fmt(lbl, "%s 1", tr("audiobook_chapter_prefix"));
+				lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+				lv_obj_set_flex_grow(lbl, 1);
+				lv_label_set_text(lbl, detail_chapters[i].title);
 				lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
 				lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
+
+				if (is_completed) {
+					lv_obj_t *chk = lv_image_create(card);
+					lv_image_set_src(chk, &icon_check_small);
+					lv_obj_add_style(chk, &theme_style_icon, 0);
+					lv_obj_set_style_image_recolor_opa(chk, LV_OPA_COVER, 0);
+					lv_obj_set_style_image_recolor(chk, AUDIOBOOK_TEXT_DIM, 0);
+				}
 			}
 		}
 	} else {
 		// Bookmarks Tab
-		bookmark_build_t b = {0, detail_tab_body};
-		audiobookdb_bookmarks_for_each(detail_book_path, detail_build_bookmark_row, &b);
-		if (b.count == 0) {
+		for (int i = 0; i < detail_bookmark_count; i++) {
+			lv_obj_t *card = lv_btn_create(detail_tab_body);
+			lv_obj_set_size(card, lv_pct(100), 58);
+			lv_obj_set_style_radius(card, 12, 0);
+			lv_obj_set_style_pad_hor(card, 16, 0);
+			lv_obj_set_style_shadow_width(card, 0, 0);
+			lv_obj_set_style_border_width(card, 0, 0);
+			lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_BG, 0);
+			lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
+			lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
+			lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+			lv_obj_add_event_cb(card, bookmark_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+			char clock[32];
+			format_clock(detail_bookmarks[i].seconds, clock, sizeof(clock));
+
+			lv_obj_t *lbl = lv_label_create(card);
+			lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+			lv_obj_set_flex_grow(lbl, 1);
+			if (detail_bookmarks[i].label[0]) {
+				lv_label_set_text_fmt(lbl, "%s · %s", detail_bookmarks[i].label, clock);
+			} else {
+				lv_label_set_text_fmt(lbl, "%s · %s", tr("audiobook_chapter_prefix"), clock);
+			}
+			lv_obj_add_style(lbl, &theme_style_text, 0);
+			lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
+		}
+
+		if (detail_bookmark_count == 0) {
 			lv_obj_t *empty = lv_label_create(detail_tab_body);
 			lv_label_set_text(empty, tr("audiobook_no_bookmarks"));
 			lv_obj_set_style_text_color(empty, AUDIOBOOK_TEXT_DIM, 0);
@@ -1385,6 +1358,8 @@ void audiobook_open_detail(const char *book_path) {
 	if (!book_path || !book_path[0]) return;
 	snprintf(detail_book_path, sizeof(detail_book_path), "%s", book_path);
 
+	load_detail_data(detail_book_path);
+
 	book_progress_info_t info;
 	get_book_progress_info(detail_book_path, &info);
 
@@ -1393,7 +1368,8 @@ void audiobook_open_detail(const char *book_path) {
 	lv_label_set_text(detail_hero_author, info.author[0] ? info.author : tr("audiobook_unknown_author"));
 
 	char meta_str[128];
-	snprintf(meta_str, sizeof(meta_str), "%d %s", info.total_chapters > 0 ? info.total_chapters : 1, tr("audiobook_chapters_count"));
+	int chap_display_count = detail_chapter_count > 0 ? detail_chapter_count : (info.total_chapters > 0 ? info.total_chapters : 1);
+	snprintf(meta_str, sizeof(meta_str), "%d %s", chap_display_count, tr("audiobook_chapters_count"));
 	lv_label_set_text(detail_hero_meta, meta_str);
 
 	if (info.finished || info.percent == 0) {
@@ -1413,6 +1389,10 @@ void audiobook_open_detail(const char *book_path) {
 
 static void detail_loaded_cb(lv_event_t *e) {
 	(void)e;
+	if (detail_book_path[0]) {
+		load_detail_data(detail_book_path);
+		rebuild_detail_tab_content();
+	}
 	detail_thumbs_update();
 }
 
@@ -1459,7 +1439,7 @@ static void build_detail_page(gui_config_t *cfg) {
 	lv_obj_add_style(detail_hero_img, &theme_style_icon, 0);
 
 	lv_obj_t *hero_col = lv_obj_create(hero);
-	lv_obj_set_size(hero_col, lv_pct(100), LV_SIZE_CONTENT);
+	lv_obj_set_size(hero_col, 0, LV_SIZE_CONTENT);
 	lv_obj_set_flex_grow(hero_col, 1);
 	lv_obj_set_style_bg_opa(hero_col, 0, 0);
 	lv_obj_set_style_border_width(hero_col, 0, 0);
@@ -1720,6 +1700,10 @@ static void home_hero_play_cb(lv_event_t *e) {
 
 static void home_hero_card_cb(lv_event_t *e) {
 	if (player_sheet_drag_active() || switcher_back_drag_active()) return;
+	lv_obj_t *target = lv_event_get_target(e);
+	if (target == home_hero_play_btn || (target && lv_obj_get_parent(target) == home_hero_play_btn)) {
+		return;
+	}
 	if (home_hero_path[0]) {
 		audiobook_open_detail(home_hero_path);
 	}
@@ -1727,9 +1711,9 @@ static void home_hero_card_cb(lv_event_t *e) {
 
 static void home_continue_click_cb(lv_event_t *e) {
 	if (player_sheet_drag_active() || switcher_back_drag_active()) return;
-	const char *path = lv_event_get_user_data(e);
-	if (path && path[0]) {
-		audiobook_open_detail(path);
+	int idx = (int)(intptr_t)lv_event_get_user_data(e);
+	if (idx >= 0 && idx < home_continue_count) {
+		audiobook_open_detail(home_continue_items[idx].path);
 	}
 }
 
@@ -1799,29 +1783,24 @@ static void reload_home_page(void) {
 		lv_obj_set_hidden(home_hero_card, true);
 	}
 
-	// Populate "En curso" list
+	// Populate "En curso" list: show remaining books, never duplicate hero book!
 	lv_obj_clean(home_continue_container);
 	home_continue_count = 0;
 
-	// Start from coll.paths[1] if more than 1, or coll.paths[0] if it's in progress
-	int start_idx = (coll.count > 1) ? 1 : 0;
-	if (coll.count > 0 && audiobookdb_get_position(coll.paths[0], NULL, 0, NULL)) {
-		start_idx = (coll.count > 1) ? 1 : 0;
-	}
-
-	for (int i = start_idx; i < coll.count && home_continue_count < MAX_HOME_CONTINUE; i++) {
+	for (int i = 1; i < coll.count && home_continue_count < MAX_HOME_CONTINUE; i++) {
 		const char *path = coll.paths[i];
 		book_progress_info_t info;
 		get_book_progress_info(path, &info);
 
-		home_continue_item_t *item = &home_continue_items[home_continue_count++];
+		int item_idx = home_continue_count++;
+		home_continue_item_t *item = &home_continue_items[item_idx];
 		snprintf(item->path, sizeof(item->path), "%s", path);
 		item->has_thumb = false;
 		item->thumb_requested = false;
 		item->thumb_settled = false;
 
 		item->card = lv_btn_create(home_continue_container);
-		lv_obj_set_size(item->card, lv_pct(100), 80);
+		lv_obj_set_size(item->card, lv_pct(100), 78);
 		lv_obj_set_style_bg_color(item->card, AUDIOBOOK_CARD_BG, 0);
 		lv_obj_set_style_bg_color(item->card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
 		lv_obj_set_style_radius(item->card, 12, 0);
@@ -1831,10 +1810,7 @@ static void reload_home_page(void) {
 		lv_obj_set_style_pad_gap(item->card, 12, 0);
 		lv_obj_set_flex_flow(item->card, LV_FLEX_FLOW_ROW);
 		lv_obj_set_flex_align(item->card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-		char *copied_path = strdup(path);
-		lv_obj_add_event_cb(item->card, home_continue_click_cb, LV_EVENT_CLICKED, copied_path);
-		lv_obj_add_event_cb(item->card, (lv_event_cb_t)free, LV_EVENT_DELETE, copied_path);
+		lv_obj_add_event_cb(item->card, home_continue_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)item_idx);
 
 		item->img = lv_image_create(item->card);
 		lv_obj_set_size(item->img, 56, 56);
@@ -1844,7 +1820,7 @@ static void reload_home_page(void) {
 		lv_obj_add_style(item->img, &theme_style_icon, 0);
 
 		lv_obj_t *col = lv_obj_create(item->card);
-		lv_obj_set_size(col, lv_pct(100), LV_SIZE_CONTENT);
+		lv_obj_set_size(col, 0, LV_SIZE_CONTENT);
 		lv_obj_set_flex_grow(col, 1);
 		lv_obj_set_style_bg_opa(col, 0, 0);
 		lv_obj_set_style_border_width(col, 0, 0);
@@ -1948,27 +1924,31 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_obj_set_style_border_width(banner, 2, 0);
 	lv_obj_set_style_radius(banner, 14, 0);
 	lv_obj_set_style_shadow_width(banner, 0, 0);
-	lv_obj_set_style_pad_hor(banner, 18, 0);
+	lv_obj_set_style_pad_hor(banner, 16, 0);
 	lv_obj_set_style_pad_gap(banner, 12, 0);
+	lv_obj_set_scrollable(banner, false);
 	lv_obj_set_flex_flow(banner, LV_FLEX_FLOW_ROW);
 	lv_obj_set_flex_align(banner, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 	lv_obj_add_event_cb(banner, open_library_banner_cb, LV_EVENT_CLICKED, NULL);
 
 	lv_obj_t *b_icon = lv_image_create(banner);
-	lv_image_set_src(b_icon, &icon_book_headphones_row);
+	lv_image_set_src(b_icon, &icon_menu_books);
 	lv_obj_add_style(b_icon, &theme_style_icon, 0);
 	lv_obj_set_style_image_recolor_opa(b_icon, LV_OPA_COVER, 0);
+	lv_obj_set_style_image_recolor(b_icon, lv_color_white(), 0);
 
 	lv_obj_t *b_lbl = lv_label_create(banner);
+	lv_label_set_long_mode(b_lbl, LV_LABEL_LONG_DOT);
 	lv_label_set_text(b_lbl, tr("audiobook_go_to_library"));
 	lv_obj_set_style_text_color(b_lbl, lv_color_white(), 0);
 	lv_obj_set_style_text_font(b_lbl, &font_ui_22, 0);
 	lv_obj_set_flex_grow(b_lbl, 1);
 
-	lv_obj_t *b_chev = lv_label_create(banner);
-	lv_label_set_text(b_chev, LV_SYMBOL_RIGHT);
-	lv_obj_set_style_text_color(b_chev, AUDIOBOOK_ACCENT, 0);
-	lv_obj_set_style_text_font(b_chev, &font_ui_20, 0);
+	lv_obj_t *b_chev = lv_image_create(banner);
+	lv_image_set_src(b_chev, &icon_chevron_right);
+	lv_obj_add_style(b_chev, &theme_style_icon, 0);
+	lv_obj_set_style_image_recolor_opa(b_chev, LV_OPA_COVER, 0);
+	lv_obj_set_style_image_recolor(b_chev, AUDIOBOOK_ACCENT, 0);
 
 	// Section 1: "Continuar leyendo"
 	lv_obj_t *sec1_lbl = lv_label_create(home_scroll);
@@ -1998,7 +1978,7 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_obj_add_style(home_hero_img, &theme_style_icon, 0);
 
 	lv_obj_t *hero_mid = lv_obj_create(home_hero_card);
-	lv_obj_set_size(hero_mid, lv_pct(100), LV_SIZE_CONTENT);
+	lv_obj_set_size(hero_mid, 0, LV_SIZE_CONTENT);
 	lv_obj_set_flex_grow(hero_mid, 1);
 	lv_obj_set_style_bg_opa(hero_mid, 0, 0);
 	lv_obj_set_style_border_width(hero_mid, 0, 0);
@@ -2026,13 +2006,14 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_obj_set_style_bg_opa(p_row, 0, 0);
 	lv_obj_set_style_border_width(p_row, 0, 0);
 	lv_obj_set_style_pad_all(p_row, 0, 0);
-	lv_obj_set_style_pad_gap(p_row, 8, 0);
+	lv_obj_set_style_pad_gap(p_row, 10, 0);
 	lv_obj_set_scrollable(p_row, false);
 	lv_obj_set_flex_flow(p_row, LV_FLEX_FLOW_ROW);
 	lv_obj_set_flex_align(p_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
 	home_hero_bar = lv_bar_create(p_row);
-	lv_obj_set_size(home_hero_bar, 130, 6);
+	lv_obj_set_size(home_hero_bar, 0, 6);
+	lv_obj_set_flex_grow(home_hero_bar, 1);
 	lv_bar_set_range(home_hero_bar, 0, 100);
 	lv_obj_set_style_bg_color(home_hero_bar, AUDIOBOOK_BAR_TRACK, LV_PART_MAIN);
 	lv_obj_set_style_bg_opa(home_hero_bar, LV_OPA_COVER, LV_PART_MAIN);
@@ -2055,11 +2036,12 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_obj_set_style_pad_all(home_hero_play_btn, 0, 0);
 	lv_obj_add_event_cb(home_hero_play_btn, home_hero_play_cb, LV_EVENT_CLICKED, NULL);
 
-	lv_obj_t *play_icon = lv_label_create(home_hero_play_btn);
-	lv_label_set_text(play_icon, LV_SYMBOL_PLAY);
-	lv_obj_set_style_text_color(play_icon, lv_color_white(), 0);
-	lv_obj_set_style_text_font(play_icon, &font_ui_20, 0);
-	lv_obj_center(play_icon);
+	lv_obj_t *play_img = lv_image_create(home_hero_play_btn);
+	lv_image_set_src(play_img, &icon_play_small);
+	lv_obj_add_style(play_img, &theme_style_icon, 0);
+	lv_obj_set_style_image_recolor_opa(play_img, LV_OPA_COVER, 0);
+	lv_obj_set_style_image_recolor(play_img, lv_color_white(), 0);
+	lv_obj_center(play_img);
 
 	// Section 2: "En curso"
 	lv_obj_t *sec2_lbl = lv_label_create(home_scroll);

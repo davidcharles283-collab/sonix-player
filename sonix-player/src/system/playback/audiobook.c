@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 // How often the position is written back while a book is playing. These
@@ -549,6 +550,11 @@ int audiobook_get_file_chapters(const char *filepath, audiobook_chapter_entry_t 
 		return 0;
 	}
 	*out_entries = NULL;
+
+	struct stat st;
+	if (stat(filepath, &st) != 0 || S_ISDIR(st.st_mode)) {
+		return 0;
+	}
 
 	mp4_file_t *m = mp4_open(filepath);
 	if (!m) {
