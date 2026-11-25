@@ -920,20 +920,21 @@ static void build_books_page(gui_config_t *cfg) {
 		row->title_label = lv_label_create(col);
 		lv_label_set_long_mode(row->title_label, LV_LABEL_LONG_DOT);
 		lv_obj_set_width(row->title_label, lv_pct(100));
+		lv_obj_set_height(row->title_label, lv_font_get_line_height(&font_ui_22));
 		lv_obj_set_style_text_color(row->title_label, lv_color_white(), 0);
 		lv_obj_set_style_text_font(row->title_label, &font_ui_22, 0);
-		lv_obj_set_style_max_height(row->title_label, lv_font_get_line_height(&font_ui_22), 0);
 
 		row->author_label = lv_label_create(col);
 		lv_label_set_long_mode(row->author_label, LV_LABEL_LONG_DOT);
 		lv_obj_set_width(row->author_label, lv_pct(100));
+		lv_obj_set_height(row->author_label, lv_font_get_line_height(&font_ui_18));
 		lv_obj_set_style_text_color(row->author_label, AUDIOBOOK_TEXT_DIM, 0);
 		lv_obj_set_style_text_font(row->author_label, &font_ui_18, 0);
-		lv_obj_set_style_max_height(row->author_label, lv_font_get_line_height(&font_ui_18), 0);
 
 		row->status_label = lv_label_create(col);
 		lv_label_set_long_mode(row->status_label, LV_LABEL_LONG_DOT);
 		lv_obj_set_width(row->status_label, lv_pct(100));
+		lv_obj_set_height(row->status_label, lv_font_get_line_height(&font_ui_16));
 		lv_obj_set_style_text_color(row->status_label, AUDIOBOOK_TEXT_DIM, 0);
 		lv_obj_set_style_text_font(row->status_label, &font_ui_16, 0);
 
@@ -1214,6 +1215,8 @@ static void rebuild_detail_tab_content(void) {
 			lv_obj_set_style_border_color(card, AUDIOBOOK_ACCENT, 0);
 			lv_obj_set_style_bg_color(card, is_playing ? AUDIOBOOK_ACTIVE_BG : AUDIOBOOK_CARD_BG, 0);
 			lv_obj_set_style_bg_color(card, AUDIOBOOK_CARD_PRESSED, LV_STATE_PRESSED);
+			lv_obj_set_style_clip_corner(card, true, 0);
+			lv_obj_set_scrollable(card, false);
 			lv_obj_set_flex_flow(card, LV_FLEX_FLOW_ROW);
 			lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 			lv_obj_set_style_pad_gap(card, 12, 0);
@@ -1248,6 +1251,7 @@ static void rebuild_detail_tab_content(void) {
 				lv_obj_t *lbl = lv_label_create(col);
 				lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
 				lv_obj_set_width(lbl, lv_pct(100));
+				lv_obj_set_height(lbl, lv_font_get_line_height(&font_ui_20));
 				lv_label_set_text_fmt(lbl, "%s %s", detail_chapters[i].title, tr("audiobook_now_playing_tag"));
 				lv_obj_set_style_text_color(lbl, AUDIOBOOK_ACCENT, 0);
 				lv_obj_set_style_text_font(lbl, &font_ui_20, 0);
@@ -1261,13 +1265,18 @@ static void rebuild_detail_tab_content(void) {
 					snprintf(time_str + strlen(time_str), sizeof(time_str) - strlen(time_str), " / %s", dur_str);
 				}
 				lv_obj_t *time_lbl = lv_label_create(col);
+				lv_label_set_long_mode(time_lbl, LV_LABEL_LONG_DOT);
+				lv_obj_set_width(time_lbl, lv_pct(100));
+				lv_obj_set_height(time_lbl, lv_font_get_line_height(&font_ui_16));
 				lv_label_set_text(time_lbl, time_str);
 				lv_obj_set_style_text_color(time_lbl, AUDIOBOOK_TEXT_DIM, 0);
 				lv_obj_set_style_text_font(time_lbl, &font_ui_16, 0);
 			} else {
 				lv_obj_t *lbl = lv_label_create(card);
 				lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+				lv_obj_set_width(lbl, 0);
 				lv_obj_set_flex_grow(lbl, 1);
+				lv_obj_set_height(lbl, lv_font_get_line_height(&font_ui_22));
 				lv_label_set_text(lbl, detail_chapters[i].title);
 				lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
 				lv_obj_set_style_text_font(lbl, &font_ui_22, 0);
@@ -1301,7 +1310,9 @@ static void rebuild_detail_tab_content(void) {
 
 			lv_obj_t *lbl = lv_label_create(card);
 			lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+			lv_obj_set_width(lbl, 0);
 			lv_obj_set_flex_grow(lbl, 1);
+			lv_obj_set_height(lbl, lv_font_get_line_height(&font_ui_22));
 			if (detail_bookmarks[i].label[0]) {
 				lv_label_set_text_fmt(lbl, "%s · %s", detail_bookmarks[i].label, clock);
 			} else {
@@ -1451,20 +1462,21 @@ static void build_detail_page(gui_config_t *cfg) {
 	detail_hero_title = lv_label_create(hero_col);
 	lv_label_set_long_mode(detail_hero_title, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(detail_hero_title, lv_pct(100));
+	lv_obj_set_height(detail_hero_title, lv_font_get_line_height(&font_ui_22));
 	lv_obj_set_style_text_color(detail_hero_title, lv_color_white(), 0);
 	lv_obj_set_style_text_font(detail_hero_title, &font_ui_22, 0);
-	lv_obj_set_style_max_height(detail_hero_title, lv_font_get_line_height(&font_ui_22), 0);
 
 	detail_hero_author = lv_label_create(hero_col);
 	lv_label_set_long_mode(detail_hero_author, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(detail_hero_author, lv_pct(100));
+	lv_obj_set_height(detail_hero_author, lv_font_get_line_height(&font_ui_18));
 	lv_obj_set_style_text_color(detail_hero_author, AUDIOBOOK_TEXT_DIM, 0);
 	lv_obj_set_style_text_font(detail_hero_author, &font_ui_18, 0);
-	lv_obj_set_style_max_height(detail_hero_author, lv_font_get_line_height(&font_ui_18), 0);
 
 	detail_hero_meta = lv_label_create(hero_col);
 	lv_label_set_long_mode(detail_hero_meta, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(detail_hero_meta, lv_pct(100));
+	lv_obj_set_height(detail_hero_meta, lv_font_get_line_height(&font_ui_16));
 	lv_obj_set_style_text_color(detail_hero_meta, AUDIOBOOK_TEXT_DIM, 0);
 	lv_obj_set_style_text_font(detail_hero_meta, &font_ui_16, 0);
 
@@ -1832,18 +1844,18 @@ static void reload_home_page(void) {
 		lv_obj_t *lbl_t = lv_label_create(col);
 		lv_label_set_long_mode(lbl_t, LV_LABEL_LONG_DOT);
 		lv_obj_set_width(lbl_t, lv_pct(100));
+		lv_obj_set_height(lbl_t, lv_font_get_line_height(&font_ui_20));
 		lv_label_set_text(lbl_t, info.title[0] ? info.title : tr("audiobooks"));
 		lv_obj_set_style_text_color(lbl_t, lv_color_white(), 0);
 		lv_obj_set_style_text_font(lbl_t, &font_ui_20, 0);
-		lv_obj_set_style_max_height(lbl_t, lv_font_get_line_height(&font_ui_20), 0);
 
 		lv_obj_t *lbl_a = lv_label_create(col);
 		lv_label_set_long_mode(lbl_a, LV_LABEL_LONG_DOT);
 		lv_obj_set_width(lbl_a, lv_pct(100));
+		lv_obj_set_height(lbl_a, lv_font_get_line_height(&font_ui_16));
 		lv_label_set_text(lbl_a, info.author[0] ? info.author : tr("audiobook_unknown_author"));
 		lv_obj_set_style_text_color(lbl_a, AUDIOBOOK_TEXT_DIM, 0);
 		lv_obj_set_style_text_font(lbl_a, &font_ui_16, 0);
-		lv_obj_set_style_max_height(lbl_a, lv_font_get_line_height(&font_ui_16), 0);
 
 		lv_obj_t *lbl_s = lv_label_create(col);
 		lv_label_set_text_fmt(lbl_s, "Cap. %d · %d%%", info.current_chapter > 0 ? info.current_chapter : 1, info.percent);
@@ -1942,6 +1954,7 @@ static void build_section_page(gui_config_t *cfg) {
 	lv_label_set_text(b_lbl, tr("audiobook_go_to_library"));
 	lv_obj_set_style_text_color(b_lbl, lv_color_white(), 0);
 	lv_obj_set_style_text_font(b_lbl, &font_ui_22, 0);
+	lv_obj_set_height(b_lbl, lv_font_get_line_height(&font_ui_22));
 	lv_obj_set_flex_grow(b_lbl, 1);
 
 	lv_obj_t *b_chev = lv_image_create(banner);
@@ -1990,16 +2003,16 @@ static void build_section_page(gui_config_t *cfg) {
 	home_hero_title = lv_label_create(hero_mid);
 	lv_label_set_long_mode(home_hero_title, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(home_hero_title, lv_pct(100));
+	lv_obj_set_height(home_hero_title, lv_font_get_line_height(&font_ui_22));
 	lv_obj_set_style_text_color(home_hero_title, lv_color_white(), 0);
 	lv_obj_set_style_text_font(home_hero_title, &font_ui_22, 0);
-	lv_obj_set_style_max_height(home_hero_title, lv_font_get_line_height(&font_ui_22), 0);
 
 	home_hero_author = lv_label_create(hero_mid);
 	lv_label_set_long_mode(home_hero_author, LV_LABEL_LONG_DOT);
 	lv_obj_set_width(home_hero_author, lv_pct(100));
+	lv_obj_set_height(home_hero_author, lv_font_get_line_height(&font_ui_18));
 	lv_obj_set_style_text_color(home_hero_author, AUDIOBOOK_TEXT_DIM, 0);
 	lv_obj_set_style_text_font(home_hero_author, &font_ui_18, 0);
-	lv_obj_set_style_max_height(home_hero_author, lv_font_get_line_height(&font_ui_18), 0);
 
 	lv_obj_t *p_row = lv_obj_create(hero_mid);
 	lv_obj_set_size(p_row, lv_pct(100), LV_SIZE_CONTENT);
