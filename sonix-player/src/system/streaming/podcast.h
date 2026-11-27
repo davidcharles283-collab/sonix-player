@@ -25,8 +25,8 @@
 // at startup when it knows their address; the calls below answer "gone" for
 // any other.
 //
-// Everything in here blocks. Call only from the page's worker thread, never
-// from the UI thread.
+// Catalogue and feed requests block. Call them only from the page's worker
+// thread, never from the UI thread.
 
 #define PODCAST_TITLE_MAX 160
 #define PODCAST_AUTHOR_MAX 120
@@ -103,6 +103,10 @@ int podcast_feed_by_url(const char *url, podcast_feed_t *out);
 // A single episode by its id alone. Episodes are only known through their
 // feed, so this always fails: use podcast_episode_in_feed().
 bool podcast_episode(long long episode_id, podcast_episode_t *out);
+
+// Whether these saved IDs can be used for an RSS lookup. Does not fetch the
+// feed or check whether it still carries the episode.
+bool podcast_episode_has_lookup_ids(long long feed_id, long long episode_id);
 
 // The same when the podcast is known too, which is what an episode read from a
 // feed needs: there is no catalogue to ask by its id alone.

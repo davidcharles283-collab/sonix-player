@@ -781,25 +781,26 @@ int podcaststate_for_feed(long long feed_id, podcaststate_cb_t cb, void *user) {
 	return select_many("feed_id=?", NULL, NULL, feed_id, cb, user);
 }
 
-int podcaststate_in_progress(podcaststate_t *out, int max) {
+int podcaststate_in_progress(podcaststate_t *out, int max,
+							 bool (*include)(const podcaststate_t *state, void *user), void *user) {
 	if (!out || max <= 0 || !db_path[0]) {
 		return 0;
 	}
-	int n = 0;
 	char current_copy_key[sizeof(current_key)] = "";
 	pthread_mutex_lock(&current_lock);
-	if (current_valid && !current.played && current.position > START_SECONDS) {
-		out[n] = current;
-		out[n].touched = PODCASTSTATE_TOUCHED_NOW;
+	bool in_progress = current_valid && !current.played && current.position > START_SECONDS;
+	if (in_progress) {
+		out[0] = current;
+		out[0].touched = PODCASTSTATE_TOUCHED_NOW;
 		snprintf(current_copy_key, sizeof(current_copy_key), "%s", current_key);
-		n++;
 	}
 	pthread_mutex_unlock(&current_lock);
+	int n = in_progress && (!include || include(&out[0], user)) ? 1 : 0;
 
 	char sql[240];
 	snprintf(sql, sizeof(sql),
-			 "SELECT %s,key FROM PODCAST_EPISODES WHERE played=0 AND position>%d ORDER BY touched DESC LIMIT %d",
-			 COLUMNS, (int)START_SECONDS, max + 1);
+			 "SELECT %s,key FROM PODCAST_EPISODES WHERE played=0 AND position>%d ORDER BY touched DESC",
+			 COLUMNS, (int)START_SECONDS);
 	pthread_mutex_lock(&db_lock);
 	sqlite3 *db = open_db();
 	if (db) {
@@ -810,7 +811,10 @@ int podcaststate_in_progress(podcaststate_t *out, int max) {
 				if (key && current_copy_key[0] && strcmp(key, current_copy_key) == 0) {
 					continue; // already first, from memory
 				}
-				read_row(stmt, &out[n++]);
+				read_row(stmt, &out[n]);
+				if (!include || include(&out[n], user)) {
+					n++;
+				}
 			}
 			sqlite3_finalize(stmt);
 		}
