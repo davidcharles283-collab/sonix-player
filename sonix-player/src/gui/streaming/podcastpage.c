@@ -2701,6 +2701,29 @@ static void place_list_body(void) {
 	}
 }
 
+static bool can_resume_online(const podcaststate_t *st) {
+	return !offline && podcast_episode_has_lookup_ids(st->feed_id, st->episode_id);
+}
+
+static bool listen_on_card(const podcaststate_t *st) {
+	return st->path[0] && access(st->path, F_OK) == 0 && !growfile_is_growing(st->path);
+}
+
+typedef struct {
+	const char *path;
+	long long episode_id;
+} listening_now_t;
+
+static bool listen_can_resume(const podcaststate_t *st, void *user) {
+	const listening_now_t *now = user;
+	// The episode in the player is the row above.
+	if (now->path && ((st->path[0] && strcmp(st->path, now->path) == 0) ||
+					  (now->episode_id > 0 && st->episode_id == now->episode_id))) {
+		return false;
+	}
+	return can_resume_online(st) || listen_on_card(st);
+}
+
 static void refresh_listening(void) {
 	if (!top_block) {
 		return;
@@ -2738,26 +2761,16 @@ static void refresh_listening(void) {
 
 	int shown = 0;
 	if (home) {
-		static podcaststate_t found[LISTEN_ROWS * 2];
-		int n = podcaststate_in_progress(found, LISTEN_ROWS * 2);
-		for (int i = 0; i < n && shown < LISTEN_ROWS - 1; i++) {
+		static podcaststate_t found[LISTEN_ROWS - 1];
+		listening_now_t current = {.path = playing_one ? now.current_file : NULL, .episode_id = now_id};
+		shown = podcaststate_in_progress(found, LISTEN_ROWS - 1, listen_can_resume, &current);
+		for (int i = 0; i < shown; i++) {
 			const podcaststate_t *st = &found[i];
-			// The episode in the player is the row above.
-			if (playing_one && ((st->path[0] && strcmp(st->path, now.current_file) == 0) ||
-								(now_id > 0 && st->episode_id == now_id))) {
-				continue;
-			}
-			bool on_card = st->path[0] && access(st->path, F_OK) == 0 && !growfile_is_growing(st->path);
-			bool reachable = st->episode_id > 0 && !offline;
-			if (!on_card && !reachable) {
-				continue;
-			}
-			listen_row_t *row = &listen[1 + shown];
+			listen_row_t *row = &listen[1 + i];
 			row->state = *st;
 			listen_fill(row, st->title, st->show, st->position, st->duration);
-			listen_cover(1 + shown, on_card ? st->path : NULL);
+			listen_cover(1 + i, listen_on_card(st) ? st->path : NULL);
 			lv_obj_set_hidden(row->button, false);
-			shown++;
 		}
 	}
 	for (int k = 1 + shown; k < LISTEN_ROWS; k++) {
@@ -2792,11 +2805,10 @@ static void listen_tick(void) {
 }
 
 static void continue_play(const podcaststate_t *st) {
-	// An episode of the catalogue goes back through its podcast's list when
-	// the network allows, so the episodes after it follow it; a file on the
-	// card, or anything without the network, plays from where it is.
+	// Go back through the feed to queue subsequent episodes when possible.
+	// Downloads and cached episodes with legacy IDs play from the card.
 	bool kept = st->path[0] && podcastdl_owns(st->path);
-	if (st->episode_id > 0 && !offline && !kept) {
+	if (!kept && can_resume_online(st)) {
 		browsing_author[0] = '\0';
 		snprintf(browsing_image, sizeof(browsing_image), "%.*s", (int)sizeof(browsing_image) - 1, st->image);
 		podcastpage_resume(st);

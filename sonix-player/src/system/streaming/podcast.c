@@ -388,12 +388,16 @@ bool podcast_episode(long long episode_id, podcast_episode_t *out) {
 	return false;
 }
 
+bool podcast_episode_has_lookup_ids(long long feed_id, long long episode_id) {
+	return podcastrss_is_id(feed_id) && podcastrss_is_id(episode_id);
+}
+
 bool podcast_episode_in_feed(long long feed_id, long long episode_id, podcast_episode_t *out) {
-	if (!out || legacy_id(feed_id)) {
+	if (!out) {
 		return false;
 	}
-	if (!podcastrss_is_id(episode_id)) {
-		set_error(tr("podcast_episode_gone")); // a Podcast Index episode id
+	if (!podcast_episode_has_lookup_ids(feed_id, episode_id)) {
+		set_error(podcastrss_is_id(feed_id) ? tr("podcast_episode_gone") : tr("podcast_gone"));
 		return false;
 	}
 	rss_find(feed_id);

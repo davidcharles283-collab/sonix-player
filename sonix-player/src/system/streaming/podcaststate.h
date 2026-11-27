@@ -86,8 +86,10 @@ int podcaststate_in_folder(const char *folder, podcaststate_cb_t cb, void *user)
 int podcaststate_for_feed(long long feed_id, podcaststate_cb_t cb, void *user);
 
 // The episodes left halfway, most recent first: what "Continue listening"
-// offers. Returns how many were put in `out`.
-int podcaststate_in_progress(podcaststate_t *out, int max);
+// offers. Fill up to `max` entries accepted by `include`. The predicate must
+// not call back into podcaststate while the database is being read.
+int podcaststate_in_progress(podcaststate_t *out, int max,
+							 bool (*include)(const podcaststate_t *state, void *user), void *user);
 
 // Marks an episode of the catalogue heard or not, from its row in a podcast's
 // page, without a file to name it by: it may never have been downloaded.
